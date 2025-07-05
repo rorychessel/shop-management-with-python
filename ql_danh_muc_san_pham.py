@@ -198,7 +198,7 @@ def xem_danh_sach_san_pham(window, current_user, current_user_role, back_callbac
         tree.pack(pady=10, fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        btn_back = tk.Button(main_frame, text="Quay lại", command=lambda: show_san_pham_form(window, current_user, current_user_role, back_callback))
+        btn_back = tk.Button(main_frame, text="Quay lại", command=lambda: show_san_pham_form(window, current_user, current_user_role, back_callback) if current_user_role.strip().lower() == "quản lý" else back_callback(window, current_user, current_user_role))
         btn_back.pack(pady=10)
         
     except Exception as e:

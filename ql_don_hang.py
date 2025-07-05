@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-
 from connection import connect_db
 
 # Hàm tìm kiếm khách hàng theo số điện thoại
@@ -87,9 +86,9 @@ def show_tao_don_hang_form(window, current_user, current_user_role, back_callbac
             if field == "Số điện thoại khách hàng":
                 entry.insert(0, "")  # Để trống
             elif field == "Giờ đặt (HH:MM:SS)":
-                entry.insert(0, "15:00:00")  # Giá trị mặc định
+                entry.insert(0, "")  # Để trống
             elif field == "Ngày đặt (YYYY-MM-DD)":
-                entry.insert(0, "2025-06-07")  # Giá trị mặc định dựa trên ngày hiện tại
+                entry.insert(0, "")  # Để trống
             elif field == "Phương thức thanh toán":
                 entry.insert(0, "")  # Để trống
         entry.grid(row=idx, column=1, padx=5, pady=5, sticky="ew")
@@ -160,9 +159,10 @@ def show_tao_don_hang_form(window, current_user, current_user_role, back_callbac
 
     # Hàm chọn số lượng sản phẩm
     def chon_so_luong(event):
-        item = tree.selection()[0]
+        item = tree.selection()
         if not item:
             return
+        item = item[0]
         ma_san_pham = tree.item(item, "values")[0]
         so_luong_hien_tai = tree.item(item, "values")[5] or 0
         if not isinstance(so_luong_hien_tai, int):
@@ -210,7 +210,7 @@ def show_tao_don_hang_form(window, current_user, current_user_role, back_callbac
                 selected_products.append(product)
             
             cap_nhat_danh_sach_da_chon()
-            new_window.destroy()  # Đóng cửa sổ sau khi lưu
+            new_window.destroy()
 
         tk.Button(new_window, text="Lưu", command=luu_so_luong).pack(pady=5)
         tk.Button(new_window, text="Hủy", command=new_window.destroy).pack(pady=5)
@@ -297,6 +297,13 @@ def show_tao_don_hang_form(window, current_user, current_user_role, back_callbac
                         if cursor.rowcount == 0:
                             raise Exception(f"Số lượng tồn kho không đủ cho sản phẩm mã {product[0]}")
 
+                # Cập nhật tổng tiền
+                cursor.execute("""
+                    UPDATE don_hang 
+                    SET tong_tien = (SELECT SUM(thanh_tien) FROM don_hang_san_pham WHERE ma_don_hang = %s)
+                    WHERE ma_don_hang = %s
+                """, (ma_don_hang, ma_don_hang))
+
                 connection.commit()
                 messagebox.showinfo("Thành công", f"Đã tạo đơn hàng mã {ma_don_hang} thành công!")
                 # Reset danh sách sản phẩm chọn
@@ -351,7 +358,7 @@ def show_tra_cuu_don_hang_form(window, current_user, current_user_role, back_cal
         else:
             entry = tk.Entry(search_frame)
             if field == "Ngày đặt (YYYY-MM-DD)":
-                entry.insert(0, "2025-06-07")  # Giá trị mặc định dựa trên ngày hiện tại
+                entry.insert(0, "")  # Để trống
             else:
                 entry.insert(0, "")  # Để trống
         entry.grid(row=idx, column=1, padx=5, pady=5, sticky="ew")
@@ -460,3 +467,457 @@ def show_tra_cuu_don_hang_form(window, current_user, current_user_role, back_cal
     tk.Button(search_frame, text="Tra cứu", command=tra_cuu_don_hang).grid(row=len(search_fields), column=0, columnspan=2, pady=5)
     tk.Button(search_frame, text="Hiển thị tất cả", command=hien_thi_tat_ca_don_hang).grid(row=len(search_fields)+1, column=0, columnspan=2, pady=5)
     tk.Button(search_frame, text="Quay lại", command=lambda: back_callback(window, current_user, current_user_role)).grid(row=len(search_fields)+2, column=0, columnspan=2, pady=5)
+
+# Form cập nhật đơn hàng
+def show_cap_nhat_don_hang_form(window, current_user, current_user_role, back_callback):
+    for widget in window.winfo_children():
+        widget.destroy()
+
+    main_frame = tk.Frame(window)
+    main_frame.pack(expand=True, fill="both", padx=10, pady=10)
+
+    label_title = tk.Label(main_frame, text="Cập nhật đơn hàng", font=("Arial", 14))
+    label_title.pack(pady=10)
+
+    # Frame tìm kiếm đơn hàng
+    search_frame = tk.LabelFrame(main_frame, text="Tìm kiếm đơn hàng", font=("Arial", 12))
+    search_frame.pack(pady=10, fill="x")
+
+    tk.Label(search_frame, text="Mã đơn hàng:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+    entry_ma_don = tk.Entry(search_frame)
+    entry_ma_don.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    search_frame.grid_columnconfigure(1, weight=1)
+
+    # Frame thông tin đơn hàng
+    form_frame = tk.LabelFrame(main_frame, text="Thông tin đơn hàng", font=("Arial", 12))
+    form_frame.pack(pady=10, fill="x")
+
+    fields = ["Số điện thoại khách hàng", "Giờ đặt (HH:MM:SS)", "Ngày đặt (YYYY-MM-DD)", 
+              "Phương thức thanh toán", "Trạng thái thanh toán", "Trạng thái vận đơn"]
+    entries = {}
+
+    for idx, field in enumerate(fields):
+        tk.Label(form_frame, text=field + ":").grid(row=idx, column=0, padx=5, pady=5, sticky="e")
+        if field == "Trạng thái thanh toán":
+            entry = ttk.Combobox(form_frame, values=["Đã thanh toán", "Chưa thanh toán"], state="readonly")
+        elif field == "Trạng thái vận đơn":
+            entry = ttk.Combobox(form_frame, values=["Đang đóng gói", "Đang vận chuyển", "Đã giao", "Hủy đơn", "Trả hàng"], state="readonly")
+        else:
+            entry = tk.Entry(form_frame)
+        entry.grid(row=idx, column=1, padx=5, pady=5, sticky="ew")
+        entries[field] = entry
+    form_frame.grid_columnconfigure(1, weight=1)
+
+    # Frame chọn sản phẩm
+    product_frame = tk.LabelFrame(main_frame, text="Sản phẩm trong đơn hàng", font=("Arial", 12))
+    product_frame.pack(pady=10, fill="both", expand=True)
+
+    columns = ("Mã SP", "Tên", "Kích cỡ", "Giá bán", "Số lượng", "Thành tiền")
+    tree = ttk.Treeview(product_frame, columns=columns, show="headings")
+    
+    for col in columns:
+        tree.heading(col, text=col)
+        tree.column(col, width=100, anchor="center")
+    
+    scrollbar = ttk.Scrollbar(product_frame, orient="vertical", command=tree.yview)
+    tree.configure(yscroll=scrollbar.set)
+    
+    tree.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    # Frame danh sách sản phẩm có sẵn
+    available_product_frame = tk.LabelFrame(main_frame, text="Sản phẩm có sẵn", font=("Arial", 12))
+    available_product_frame.pack(pady=10, fill="both", expand=True)
+
+    available_columns = ("Mã SP", "Tên", "Kích cỡ", "Giá bán", "Số lượng tồn", "Số lượng chọn")
+    available_tree = ttk.Treeview(available_product_frame, columns=available_columns, show="headings")
+    
+    for col in available_columns:
+        available_tree.heading(col, text=col)
+        available_tree.column(col, width=100 if col != "Số lượng chọn" else 80, anchor="center")
+    
+    available_scrollbar = ttk.Scrollbar(available_product_frame, orient="vertical", command=available_tree.yview)
+    available_tree.configure(yscroll=available_scrollbar.set)
+    
+    available_tree.pack(side="left", fill="both", expand=True)
+    available_scrollbar.pack(side="right", fill="y")
+
+    selected_products = []
+    
+    # Hàm tìm kiếm đơn hàng
+    def tim_kiem_don_hang():
+        ma_don = entry_ma_don.get()
+        if not ma_don:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập mã đơn hàng!")
+            return
+
+        connection = connect_db()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+            # Lấy thông tin đơn hàng
+            query = """
+                SELECT dh.ma_don_hang, dh.gio_dat, dh.ngay_dat, dh.pthuc_thanh_toan, 
+                       dh.tthai_thanh_toan, dh.tthai_van_don, kh.sdt
+                FROM don_hang dh
+                JOIN khach_hang kh ON dh.ma_khach_hang = kh.ma_khach_hang
+                WHERE dh.ma_don_hang = %s
+            """
+            cursor.execute(query, (ma_don,))
+            don_hang = cursor.fetchone()
+
+            if not don_hang:
+                messagebox.showwarning("Không tìm thấy", "Không tìm thấy đơn hàng với mã này!")
+                return
+
+            # Hiển thị thông tin đơn hàng
+            entries["Số điện thoại khách hàng"].delete(0, tk.END)
+            entries["Số điện thoại khách hàng"].insert(0, don_hang[6])
+            entries["Giờ đặt (HH:MM:SS)"].delete(0, tk.END)
+            entries["Giờ đặt (HH:MM:SS)"].insert(0, don_hang[1])
+            entries["Ngày đặt (YYYY-MM-DD)"].delete(0, tk.END)
+            entries["Ngày đặt (YYYY-MM-DD)"].insert(0, don_hang[2])
+            entries["Phương thức thanh toán"].delete(0, tk.END)
+            entries["Phương thức thanh toán"].insert(0, don_hang[3])
+            entries["Trạng thái thanh toán"].set(don_hang[4])
+            entries["Trạng thái vận đơn"].set(don_hang[5])
+
+            # Lấy danh sách sản phẩm trong đơn hàng
+            query_san_pham = """
+                SELECT sp.ma_san_pham, sp.ten, sp.kich_co, dhsp.gia_ban, dhsp.so_luong, dhsp.thanh_tien
+                FROM don_hang_san_pham dhsp
+                JOIN san_pham sp ON dhsp.ma_san_pham = sp.ma_san_pham
+                WHERE dhsp.ma_don_hang = %s
+            """
+            cursor.execute(query_san_pham, (ma_don,))
+            products = cursor.fetchall()
+
+            for item in tree.get_children():
+                tree.delete(item)
+            selected_products.clear()
+            for product in products:
+                tree.insert("", tk.END, values=product)
+                selected_products.append(list(product))
+
+            # Cập nhật danh sách sản phẩm có sẵn
+            cap_nhat_danh_sach_san_pham()
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi tìm kiếm đơn hàng: {e}")
+        finally:
+            cursor.close()
+            connection.close()
+
+    # Cập nhật danh sách sản phẩm có sẵn
+    def cap_nhat_danh_sach_san_pham():
+        for item in available_tree.get_children():
+            available_tree.delete(item)
+        products = lay_danh_sach_san_pham()
+        for product in products:
+            available_tree.insert("", tk.END, values=product + (0,))
+
+    # Hàm chọn số lượng sản phẩm
+    def chon_so_luong(event):
+        item = available_tree.selection()
+        if not item:
+            return
+        item = item[0]
+        ma_san_pham = available_tree.item(item, "values")[0]
+        so_luong_hien_tai = int(available_tree.item(item, "values")[5] or 0)
+        so_luong_ton = int(available_tree.item(item, "values")[4])
+
+        new_window = tk.Toplevel(window)
+        new_window.title("Chọn số lượng")
+        new_window.geometry("300x150")
+
+        label = tk.Label(new_window, text=f"Nhập số lượng cho sản phẩm mã {ma_san_pham} (Tồn: {so_luong_ton}):")
+        label.pack(pady=10)
+
+        entry = tk.Entry(new_window)
+        entry.insert(0, str(so_luong_hien_tai))
+        entry.pack(pady=5)
+
+        def luu_so_luong():
+            so_luong = entry.get()
+            if not so_luong.isdigit() or int(so_luong) < 0:
+                messagebox.showwarning("Lỗi", "Số lượng phải là số nguyên không âm!")
+                return
+            so_luong = int(so_luong)
+            if so_luong > so_luong_ton:
+                messagebox.showwarning("Lỗi", f"Số lượng chọn ({so_luong}) vượt quá tồn kho ({so_luong_ton})!")
+                return
+
+            current_values = list(available_tree.item(item, "values"))
+            current_values[5] = so_luong
+            available_tree.item(item, values=tuple(current_values))
+
+            product = current_values[:5] + [so_luong]
+            found = False
+            for i, p in enumerate(selected_products):
+                if p[0] == ma_san_pham:
+                    if so_luong > 0:
+                        selected_products[i] = [p[0], p[1], p[2], p[3], so_luong, int(p[3]) * so_luong]
+                    else:
+                        selected_products.pop(i)
+                    found = True
+                    break
+            if not found and so_luong > 0:
+                selected_products.append([product[0], product[1], product[2], product[3], so_luong, int(product[3]) * so_luong])
+
+            cap_nhat_danh_sach_san_pham_da_chon()
+            new_window.destroy()
+
+        tk.Button(new_window, text="Lưu", command=luu_so_luong).pack(pady=5)
+        tk.Button(new_window, text="Hủy", command=new_window.destroy).pack(pady=5)
+
+    available_tree.bind("<Double-1>", chon_so_luong)
+
+    # Cập nhật danh sách sản phẩm đã chọn
+    def cap_nhat_danh_sach_san_pham_da_chon():
+        for item in tree.get_children():
+            tree.delete(item)
+        for product in selected_products:
+            tree.insert("", tk.END, values=product)
+
+    # Hàm cập nhật đơn hàng
+    def handle_cap_nhat_don_hang():
+        ma_don = entry_ma_don.get()
+        if not ma_don:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập mã đơn hàng!")
+            return
+
+        sdt = entries["Số điện thoại khách hàng"].get()
+        gio_dat = entries["Giờ đặt (HH:MM:SS)"].get()
+        ngay_dat = entries["Ngày đặt (YYYY-MM-DD)"].get()
+        pthuc_thanh_toan = entries["Phương thức thanh toán"].get()
+        tthai_thanh_toan = entries["Trạng thái thanh toán"].get()
+        tthai_van_don = entries["Trạng thái vận đơn"].get()
+
+        if not all([sdt, gio_dat, ngay_dat, pthuc_thanh_toan, tthai_thanh_toan, tthai_van_don]):
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập đầy đủ thông tin!")
+            return
+
+        connection = connect_db()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+            # Kiểm tra khách hàng
+            query_kh = "SELECT ma_khach_hang FROM khach_hang WHERE sdt = %s"
+            cursor.execute(query_kh, (sdt,))
+            khach_hang = cursor.fetchone()
+            if not khach_hang:
+                messagebox.showwarning("Lỗi", "Không tìm thấy khách hàng với số điện thoại này!")
+                return
+            ma_khach_hang = khach_hang[0]
+
+            # Bắt đầu giao dịch
+            cursor.execute("START TRANSACTION")
+
+            # Cập nhật thông tin đơn hàng
+            query_don_hang = """
+                UPDATE don_hang 
+                SET gio_dat = %s, ngay_dat = %s, pthuc_thanh_toan = %s, 
+                    tthai_thanh_toan = %s, tthai_van_don = %s, ma_khach_hang = %s
+                WHERE ma_don_hang = %s
+            """
+            cursor.execute(query_don_hang, (gio_dat, ngay_dat, pthuc_thanh_toan, tthai_thanh_toan, tthai_van_don, ma_khach_hang, ma_don))
+            if cursor.rowcount == 0:
+                raise Exception("Không tìm thấy đơn hàng để cập nhật!")
+
+            # Lấy danh sách sản phẩm hiện tại trong đơn hàng
+            query_old_products = """
+                SELECT ma_san_pham, so_luong 
+                FROM don_hang_san_pham 
+                WHERE ma_don_hang = %s
+            """
+            cursor.execute(query_old_products, (ma_don,))
+            old_products = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Xóa các sản phẩm cũ
+            cursor.execute("DELETE FROM don_hang_san_pham WHERE ma_don_hang = %s", (ma_don,))
+
+            # Khôi phục số lượng tồn kho cho các sản phẩm cũ
+            for ma_san_pham, so_luong in old_products.items():
+                cursor.execute("""
+                    UPDATE san_pham 
+                    SET so_luong_ton_kho = so_luong_ton_kho + %s 
+                    WHERE ma_san_pham = %s
+                """, (so_luong, ma_san_pham))
+
+            # Thêm sản phẩm mới và cập nhật tồn kho
+            for product in selected_products:
+                if product[4] and int(product[4]) > 0:  # Chỉ thêm nếu có số lượng
+                    so_luong = int(product[4])
+                    gia_ban = int(product[3])
+                    thanh_tien = gia_ban * so_luong
+                    cursor.execute("""
+                        INSERT INTO don_hang_san_pham (ma_don_hang, ma_san_pham, gia_ban, so_luong, thanh_tien)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (ma_don, product[0], gia_ban, so_luong, thanh_tien))
+
+                    cursor.execute("""
+                        UPDATE san_pham 
+                        SET so_luong_ton_kho = so_luong_ton_kho - %s 
+                        WHERE ma_san_pham = %s AND so_luong_ton_kho >= %s
+                    """, (so_luong, product[0], so_luong))
+                    if cursor.rowcount == 0:
+                        raise Exception(f"Số lượng tồn kho không đủ cho sản phẩm mã {product[0]}")
+
+            # Cập nhật tổng tiền đơn hàng
+            cursor.execute("""
+                UPDATE don_hang 
+                SET tong_tien = (SELECT SUM(thanh_tien) FROM don_hang_san_pham WHERE ma_don_hang = %s)
+                WHERE ma_don_hang = %s
+            """, (ma_don, ma_don))
+
+            connection.commit()
+            messagebox.showinfo("Thành công", f"Đã cập nhật đơn hàng mã {ma_don} thành công!")
+            for entry in entries.values():
+                if isinstance(entry, tk.Entry):
+                    entry.delete(0, tk.END)
+                elif isinstance(entry, ttk.Combobox):
+                    entry.set("")
+            entry_ma_don.delete(0, tk.END)
+            selected_products.clear()
+            for item in tree.get_children():
+                tree.delete(item)
+            cap_nhat_danh_sach_san_pham()
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi cập nhật đơn hàng: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+
+    tk.Button(search_frame, text="Tìm kiếm", command=tim_kiem_don_hang).grid(row=1, column=0, columnspan=2, pady=5)
+    tk.Button(form_frame, text="Cập nhật đơn hàng", command=handle_cap_nhat_don_hang).grid(row=len(fields), column=0, columnspan=2, pady=5)
+    tk.Button(form_frame, text="Quay lại", command=lambda: back_callback(window, current_user, current_user_role)).grid(row=len(fields)+1, column=0, columnspan=2, pady=5)
+
+# Form ghi nhận thanh toán
+def show_ghi_nhan_thanh_toan_form(window, current_user, current_user_role, back_callback):
+    for widget in window.winfo_children():
+        widget.destroy()
+
+    main_frame = tk.Frame(window)
+    main_frame.pack(expand=True, fill="both", padx=10, pady=10)
+
+    label_title = tk.Label(main_frame, text="Ghi nhận thanh toán", font=("Arial", 14))
+    label_title.pack(pady=10)
+
+    # Frame tìm kiếm đơn hàng
+    search_frame = tk.LabelFrame(main_frame, text="Tìm kiếm đơn hàng", font=("Arial", 12))
+    search_frame.pack(pady=10, fill="x")
+
+    tk.Label(search_frame, text="Mã đơn hàng:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+    entry_ma_don = tk.Entry(search_frame)
+    entry_ma_don.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+    search_frame.grid_columnconfigure(1, weight=1)
+
+    # Frame thông tin thanh toán
+    form_frame = tk.LabelFrame(main_frame, text="Thông tin thanh toán", font=("Arial", 12))
+    form_frame.pack(pady=10, fill="x")
+
+    fields = ["Phương thức thanh toán", "Trạng thái thanh toán"]
+    entries = {}
+
+    for idx, field in enumerate(fields):
+        tk.Label(form_frame, text=field + ":").grid(row=idx, column=0, padx=5, pady=5, sticky="e")
+        if field == "Trạng thái thanh toán":
+            entry = ttk.Combobox(form_frame, values=["Đã thanh toán", "Chưa thanh toán"], state="readonly")
+            entry.set("Chưa thanh toán")
+        else:
+            entry = tk.Entry(form_frame)
+            if field == "Phương thức thanh toán":
+                entry.insert(0, "")
+        entry.grid(row=idx, column=1, padx=5, pady=5, sticky="ew")
+        entries[field] = entry
+    form_frame.grid_columnconfigure(1, weight=1)
+
+    # Hàm tìm kiếm đơn hàng
+    def tim_kiem_don_hang():
+        ma_don = entry_ma_don.get()
+        if not ma_don:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập mã đơn hàng!")
+            return
+
+        connection = connect_db()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+            query = """
+                SELECT pthuc_thanh_toan, tthai_thanh_toan
+                FROM don_hang 
+                WHERE ma_don_hang = %s
+            """
+            cursor.execute(query, (ma_don,))
+            don_hang = cursor.fetchone()
+
+            if not don_hang:
+                messagebox.showwarning("Không tìm thấy", "Không tìm thấy đơn hàng với mã này!")
+                return
+
+            entries["Phương thức thanh toán"].delete(0, tk.END)
+            entries["Phương thức thanh toán"].insert(0, don_hang[0] or "")
+            entries["Trạng thái thanh toán"].set(don_hang[1])
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi tìm kiếm đơn hàng: {e}")
+        finally:
+            cursor.close()
+            connection.close()
+
+    # Hàm ghi nhận thanh toán
+    def handle_ghi_nhan_thanh_toan():
+        ma_don = entry_ma_don.get()
+        if not ma_don:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập mã đơn hàng!")
+            return
+
+        pthuc_thanh_toan = entries["Phương thức thanh toán"].get()
+        tthai_thanh_toan = entries["Trạng thái thanh toán"].get()
+
+        if not pthuc_thanh_toan:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập phương thức thanh toán!")
+            return
+
+        connection = connect_db()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+            query = """
+                UPDATE don_hang 
+                SET pthuc_thanh_toan = %s, tthai_thanh_toan = %s
+                WHERE ma_don_hang = %s
+            """
+            cursor.execute(query, (pthuc_thanh_toan, tthai_thanh_toan, ma_don))
+            if cursor.rowcount == 0:
+                raise Exception("Không tìm thấy đơn hàng để cập nhật!")
+
+            connection.commit()
+            messagebox.showinfo("Thành công", f"Đã ghi nhận thanh toán cho đơn hàng mã {ma_don}!")
+            entry_ma_don.delete(0, tk.END)
+            for entry in entries.values():
+                if isinstance(entry, tk.Entry):
+                    entry.delete(0, tk.END)
+                elif isinstance(entry, ttk.Combobox):
+                    entry.set("Chưa thanh toán")
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi ghi nhận thanh toán: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+
+    tk.Button(search_frame, text="Tìm kiếm", command=tim_kiem_don_hang).grid(row=1, column=0, columnspan=2, pady=5)
+    tk.Button(form_frame, text="Ghi nhận thanh toán", command=handle_ghi_nhan_thanh_toan).grid(row=len(fields), column=0, columnspan=2, pady=5)
+    tk.Button(form_frame, text="Quay lại", command=lambda: back_callback(window, current_user, current_user_role)).grid(row=len(fields)+1, column=0, columnspan=2, pady=5)
